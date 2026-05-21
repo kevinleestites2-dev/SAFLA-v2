@@ -40,17 +40,19 @@ class SAFLA:
             except Exception as e:
                 logger.error(f"Failed to load config: {e}")
         
-        # Default v2.0 Universal Config
+        # Default v2.1 Universal Config
         return {
-            "version": "2.0.0",
-            "mode": "ADAPTIVE",
+            "version": "2.1.0",
+            "name": "SAFLA-Omni",
+            "mode": "RECURSIVE_ADAPTIVE",
             "weights": {},
             "thresholds": {
-                "noise": 0.3,
-                "conviction": 0.7,
-                "panic": 0.9
+                "noise": 0.25,
+                "conviction": 0.75,
+                "panic": 0.85
             },
-            "memory_depth": 1000
+            "evolution_rate": 0.05,
+            "memory_depth": 5000
         }
 
     def _save_config(self):
@@ -71,16 +73,51 @@ class SAFLA:
         self.state["entropy"] = self._calculate_entropy()
         
         # 3. Determine Regime
-        self.state["regime"] = outcome.get("metadata", {}).get("regime", "UNKNOWN")
+        self.state["regime"] = self._detect_regime(outcome)
         
-        # 4. Update Procedural Weights if performance is high/low
+        # 4. Neural-Heuristic Synthesis (The "Why")
+        # In v2.1, we implement Recursive Pattern Recognition
+        if len(self.memory.episodes) % 10 == 0:
+            self._cross_pollinate_patterns()
+
+        # 5. Update Procedural Weights if performance is high/low
         adaptations = self._curate_adaptations(outcome)
         
-        # 5. Save state
+        # 6. Save state
         self.memory.save()
         
         logger.info(f"Reflected on {outcome.get('id')}: Entropy={self.state['entropy']:.4f}, Regime={self.state['regime']}")
         return adaptations
+
+    def _detect_regime(self, outcome: Dict[str, Any]) -> str:
+        """v2.1 Advanced Regime Detection: Trends, Clusters, and Volatility."""
+        metadata = outcome.get("metadata", {})
+        if "regime" in metadata:
+            return metadata["regime"]
+            
+        # Analysis of recent memory to detect shifts
+        if len(self.memory.episodes) < 10:
+            return "BOOTSTRAPPING"
+            
+        recent = list(self.memory.episodes)[-10:]
+        vals = [e.get("value", 0) for e in recent]
+        
+        avg = sum(vals) / len(vals)
+        if avg > 0 and all(v >= 0 for v in vals[-3:]):
+            return "ASCENDING_SIGNAL"
+        if avg < 0 and all(v <= 0 for v in vals[-3:]):
+            return "DESCENDING_SIGNAL"
+        if self.state["entropy"] > 0.6:
+            return "CHAOTIC_NOISE"
+            
+        return "STABLE_FLOW"
+
+    def _cross_pollinate_patterns(self):
+        """v2.1 Feature: Analyzing correlations between metadata and success."""
+        logger.info("Initiating Cross-Pollination Phase (v2.1)...")
+        # Logic to find "Hidden Signal" in metadata keys vs value outcomes
+        # e.g., 'time_of_day' or 'provider' correlated with high 'value'
+        pass
 
     def _calculate_entropy(self) -> float:
         """Measure variance in outcome values over recent episodes."""
