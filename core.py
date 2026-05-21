@@ -21,6 +21,9 @@ class SAFLA:
         self.memory_dir = Path("safla-v2/memory") / project_id
         self.memory_dir.mkdir(parents=True, exist_ok=True)
         
+        from memory import HybridMemory
+        self.memory = HybridMemory(self.memory_dir)
+        
         self.config = self._load_config()
         self.state = {
             "entropy": 0.0,
@@ -58,47 +61,56 @@ class SAFLA:
         The Reflection Phase:
         Analyzes the result, updates memory, and suggests adaptations.
         """
-        # outcome expected keys: 'id', 'result', 'value' (PnL, score, etc.), 'metadata'
+        # outcome expected keys: 'id', 'value' (PnL, score, etc.), 'metadata'
         timestamp = time.time()
         
-        # 1. Procedural Memory Update (The "How")
-        self._update_procedural_memory(outcome)
+        # 1. Episodic Memory Update (The "What")
+        self.memory.commit_episode(outcome)
         
-        # 2. Episodic Memory Update (The "What")
-        self._update_episodic_memory(outcome)
-        
-        # 3. Calculate Entropy (Noise vs Signal)
+        # 2. Calculate Entropy (Noise vs Signal)
         self.state["entropy"] = self._calculate_entropy()
         
-        # 4. Determine Regime
-        self.state["regime"] = self._detect_regime(outcome)
+        # 3. Determine Regime
+        self.state["regime"] = outcome.get("metadata", {}).get("regime", "UNKNOWN")
         
-        # 5. Generate Adaptations
-        adaptations = self._curate_adaptations()
+        # 4. Update Procedural Weights if performance is high/low
+        adaptations = self._curate_adaptations(outcome)
+        
+        # 5. Save state
+        self.memory.save()
         
         logger.info(f"Reflected on {outcome.get('id')}: Entropy={self.state['entropy']:.4f}, Regime={self.state['regime']}")
         return adaptations
 
-    def _update_procedural_memory(self, outcome: Dict[str, Any]):
-        # Store weights and performance deltas
-        pass
-
-    def _update_episodic_memory(self, outcome: Dict[str, Any]):
-        # Store the raw event and result
-        pass
-
     def _calculate_entropy(self) -> float:
-        # ruvnet-spec: measure variance in outcome quality over time
-        return 0.5 # Placeholder
+        """Measure variance in outcome values over recent episodes."""
+        if len(self.memory.episodes) < 5:
+            return 0.5
+        
+        values = [e.get("value", 0) for e in list(self.memory.episodes)[-20:]]
+        mean = sum(values) / len(values)
+        variance = sum((x - mean) ** 2 for x in values) / len(values)
+        return min(variance / 100.0, 1.0) # Normalized noise
 
-    def _detect_regime(self, outcome: Dict[str, Any]) -> str:
-        # Pattern detection logic
-        return "STABLE"
+    def _curate_adaptations(self, outcome: Dict[str, Any]) -> Dict[str, Any]:
+        """The Curator Phase: suggested changes to project state."""
+        strategy = outcome.get("metadata", {}).get("strategy")
+        value = outcome.get("value", 0)
+        
+        weights = self.memory.procedures.get("weights", {})
+        
+        if strategy:
+            current_w = weights.get(strategy, 1.0)
+            if value > 0:
+                weights[strategy] = min(current_w * 1.05, 5.0)
+            elif value < 0:
+                weights[strategy] = max(current_w * 0.95, 0.1)
+            
+            self.memory.update_procedure(weights)
 
-    def _curate_adaptations(self) -> Dict[str, Any]:
-        # The Curator Phase: suggested changes to project state
         return {
-            "suggested_weights": self.config.get("weights", {}),
+            "suggested_weights": weights,
+            "entropy": self.state["entropy"],
             "hibernation_mode": self.state["entropy"] > self.config["thresholds"]["panic"]
         }
 
